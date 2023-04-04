@@ -53,7 +53,7 @@ use fms_mod,            only: close_file, write_version_number, stdlog, stdout
 use fms_mod,            only: clock_flag_default
 use fms_mod,            only: check_nml_error
 use diag_manager_mod,   only: diag_send_complete_instant
-use time_manager_mod,   only: time_type, get_time, get_date, &
+use time_manager_mod,   only: time_type, get_time, get_date, day_of_year, &
                               operator(+), operator(-),real_to_time_type
 use field_manager_mod,  only: MODEL_ATMOS
 use tracer_manager_mod, only: get_number_tracers, get_tracer_names, &
@@ -79,7 +79,10 @@ use atmosphere_mod,     only: Atm, mygrid, get_nth_domain_info
 use block_control_mod,  only: block_control_type, define_blocks_packed
 use DYCORE_typedefs,    only: DYCORE_data_type, DYCORE_diag_type
 
-use GFS_typedefs,       only: GFS_init_type, GFS_kind_phys => kind_phys
+use GFS_typedefs,       only: GFS_init_type, GFS_kind_phys => kind_phys, &
+                              statein_type => GFS_statein_type, &
+                              stateout_type => GFS_stateout_type, &
+                              sfcprop_type => GFS_sfcprop_type
 use GFS_restart,        only: GFS_restart_type, GFS_restart_populate
 use GFS_diagnostics,    only: GFS_externaldiag_type, &
                               GFS_externaldiag_populate
@@ -101,6 +104,11 @@ use module_fv3_config,  only: output_1st_tstep_rst, first_kdt, nsout,    &
 use module_block_data,  only: block_atmos_copy, block_data_copy,         &
                               block_data_copy_or_fill,                   &
                               block_data_combine_fractions
+
+use machine,            only: kind_phys
+use neuralphys,         only: init_nn, eval_nn
+!use physics_abstraction_layer, only: statein_type, stateout_type, sfcprop_type
+
 
 #ifdef MOVING_NEST
 use fv_moving_nest_main_mod,  only: update_moving_nest, dump_moving_nest
@@ -170,7 +178,7 @@ real(kind=GFS_kind_phys), pointer, dimension(:,:), save :: lat_bnd_work  => null
 integer, save :: i_bnd_size, j_bnd_size
 
 integer :: fv3Clock, getClock, updClock, setupClock, radClock, physClock
-
+integer :: nnphysClock, updnnphysClock
 !-----------------------------------------------------------------------
 integer :: blocksize    = 1
 logical :: chksum_debug = .false.
@@ -207,6 +215,8 @@ type(iau_external_data_type)        :: IAU_Data ! number of blocks
 !-----------------
 type (block_control_type), target   :: Atm_block
 
+type(stateout_type), allocatable :: Stateout_tmp(:) ! number of blocks
+type(sfcprop_type ), allocatable :: Sfcprop_tmp(:) ! number of blocks
 !-----------------------------------------------------------------------
 
 character(len=128) :: version = '$Id$'
@@ -253,7 +263,7 @@ subroutine update_atmos_radiation_physics (Atmos)
   type (atmos_data_type), intent(in) :: Atmos
 !--- local variables---
     integer :: idtend, itrac
-    integer :: nb, jdat(8), rc, ierr
+    integer :: nb, jdat(8), rc, i, ierr
 
     if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "statein driver"
 !--- get atmospheric state from the dynamic core
@@ -278,6 +288,7 @@ subroutine update_atmos_radiation_physics (Atmos)
       jdat(:) = 0
       call get_date (Atmos%Time, jdat(1), jdat(2), jdat(3),  &
                                  jdat(5), jdat(6), jdat(7))
+      jdat(3) = day_of_year(Atmos%Time)
       GFS_control%jdat(:) = jdat(:)
 
 !--- execute the atmospheric setup step
@@ -410,6 +421,49 @@ subroutine update_atmos_radiation_physics (Atmos)
 
     endif
 
+!--- execute neural network based bias correction
+if ( GFS_control%do_nn_bias_correction .and. mod(GFS_control%kdt*GFS_Control%dtp,GFS_control%bc_freq*3600)==GFS_Control%dtp .and. GFS_control%kdt>1 ) then
+      if (mpp_pe() == mpp_root_pe()) print*,'NN: kdt=',GFS_control%kdt, GFS_Control%dtp
+      if (mpp_pe() == mpp_root_pe()) print*,'NN: fhour=',real(jdat(5), 4),' doy=',real(jdat(3), 4) 
+
+      call mpp_clock_begin(nnphysClock)
+      Stateout_tmp = GFS_data(:)%Stateout
+       do nb = 1,Atm_block%nblks
+          do i = 1, Atm_block%blksz(nb)
+             call eval_nn(          
+!Inputs
+                                    GFS_data(nb)%Statein%pgr(i),      &    ! surface pressure
+                                    GFS_data(nb)%Stateout%gu0(i,:),   &    ! get physics output: u-wind
+                                    GFS_data(nb)%Stateout%gv0(i,:),   &    ! v-wind
+                                    GFS_data(nb)%Stateout%gt0(i,:),   &    ! temperature
+                                    GFS_data(nb)%Stateout%gq0(i,:,1), &    ! specific humidity
+                                    GFS_data(nb)%Radtend%sfcflw(i),      & ! surface longwave fluxes
+                                    GFS_data(nb)%Radtend%sfcfsw(i),      & ! surface shortwave fluxes
+                                    GFS_data(nb)%Intdiag%topflw(i),      & ! TOA longwave fluxes
+                                    GFS_data(nb)%Intdiag%topfsw(i),      & ! TOA shortwave fluxes
+                                    real(GFS_data(nb)%Sfcprop%slmsk(i), 4),  & ! land_sea_ice mask
+                                    real(jdat(5), 4),                    & ! fhour
+                                    real(jdat(3), 4),                    & ! doy
+                                    real(GFS_data(nb)%Grid%xlon(i),4),   & ! longitude in radians
+                                    real(GFS_data(nb)%Grid%xlat(i),4),   & ! latitude in radians
+                                    real(GFS_control%bc_freq/6.,4),      & ! scaling to match update frequency
+!Outputs
+                                    Stateout_tmp(nb)%gu0(i,:),      & ! u-wind
+                                    Stateout_tmp(nb)%gv0(i,:),      & ! v-wind
+                                    Stateout_tmp(nb)%gt0(i,:),      & ! temperature
+                                    Stateout_tmp(nb)%gq0(i,:,1)     & ! specific humidity
+                        )
+
+          enddo
+       enddo
+       call mpp_clock_end(nnphysClock)
+
+   call mpp_clock_begin(updnnphysClock)
+    GFS_data(:)%Stateout  = Stateout_tmp
+   call mpp_clock_end(updnnphysClock)
+endif
+
+
     ! Per-timestep diagnostics must be after physics but before
     ! flagging the first timestep.
     if(GFS_control%print_diff_pgr) then
@@ -526,7 +580,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step)
   type (atmos_data_type), intent(inout) :: Atmos
   type (time_type), intent(in) :: Time_init, Time, Time_step
 !--- local variables ---
-  integer :: unit, i
+  integer :: unit, i, j
   integer :: mlon, mlat, nlon, nlat, nlev, sec
   integer :: ierr, io, logunit
   integer :: tile_num
@@ -703,6 +757,24 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step)
    call GFS_initialize (GFS_control, GFS_data%Statein, GFS_data%Stateout, GFS_data%Sfcprop,     &
                         GFS_data%Coupling, GFS_data%Grid, GFS_data%Tbd, GFS_data%Cldprop, GFS_data%Radtend, &
                         GFS_data%Intdiag, GFS_interstitial, Init_parm)
+
+   if (GFS_control%do_nn_bias_correction) then
+   call  init_nn(Init_parm%me)
+   
+
+   allocate(Stateout_tmp(Atm_block%nblks))
+   allocate(Sfcprop_tmp(Atm_block%nblks))
+   do i = 1,size(Init_parm%blksz)
+      j = Init_parm%blksz(i)
+      call Stateout_tmp (i)%create (j, GFS_Control)
+      call Sfcprop_tmp  (i)%create (j, GFS_Control)
+   enddo
+
+   nnphysClock     = mpp_clock_id( 'NN Physics            ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+   updnnphysClock  = mpp_clock_id( 'Copy NN Physics Output', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+
+   end if
+!endif
 
    !--- populate/associate the Diag container elements
    call GFS_externaldiag_populate (GFS_Diag, GFS_Control, GFS_Data%Statein, GFS_Data%Stateout,   &

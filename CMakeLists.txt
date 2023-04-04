@@ -78,6 +78,7 @@ endif()
 
 add_library(fv3atm
   atmos_model.F90
+  neuralphys.f90
   fv3_cap.F90
   module_fv3_config.F90
   module_fcst_grid_comp.F90
