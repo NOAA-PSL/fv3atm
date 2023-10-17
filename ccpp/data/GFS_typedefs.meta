@@ -5027,6 +5027,18 @@
   units = flag
   dimensions = ()
   type = logical
+[do_nn_bias_correction]
+  standard_name = flag_for_nn_bias_correction
+  long_name = nn bias correction main switch
+  units = flag
+  dimensions = ()
+  type = logical
+[bc_freq]
+  standard_name = freq_for_nn_bias_correction
+  long_name = frequency for nn bias correction
+  units = hour
+  dimensions = ()
+  type = real
 [ca_sgs]
   standard_name = flag_for_sgs_cellular_automata
   long_name = switch for sgs ca
