@@ -69,6 +69,7 @@ module GFS_typedefs
 !    !--- GFS Derived Data Types (DDTs)
 !    GFS_statein_type        !< prognostic state data in from dycore
 !    GFS_stateout_type       !< prognostic state or tendencies return to dycore
+!    GFS_NNbc_type           !< inline bias corrections
 !    GFS_sfcprop_type        !< surface fields
 !    GFS_coupling_type       !< fields to/from coupling with other components (e.g. land/ice/ocean/etc.)
 !    !---GFS specific containers
@@ -194,6 +195,24 @@ module GFS_typedefs
       procedure :: create  => stateout_create  !<   allocate array data
   end type GFS_stateout_type
 
+
+!------------------------------------------------------------------
+! GFS_NNbc_type
+!   inline bias correctionn corrections
+!------------------------------------------------------------------
+!! \section arg_table_GFS_NNbc_type
+!!
+  type GFS_NNbc_type
+
+    !-- Out (physics only)
+    real (kind=kind_phys), pointer :: gu(:,:)   => null()  !< zonal wind correction
+    real (kind=kind_phys), pointer :: gv(:,:)   => null()  !< meridional wind correction
+    real (kind=kind_phys), pointer :: gt(:,:)   => null()  !< temperature correction
+    real (kind=kind_phys), pointer :: qv(:,:) => null()  !< specific humidity correction
+
+    contains
+      procedure :: create  => NNbc_create  !<   allocate array data
+  end type GFS_NNbc_type
 
 !---------------------------------------------------------------------------------------
 ! GFS_sfcprop_type
@@ -1956,6 +1975,7 @@ module GFS_typedefs
   type GFS_data_type
      type(GFS_statein_type)  :: Statein
      type(GFS_stateout_type) :: Stateout
+     type(GFS_NNbc_type)     :: NNbc
      type(GFS_sfcprop_type)  :: Sfcprop
      type(GFS_coupling_type) :: Coupling
      type(GFS_grid_type)     :: Grid
@@ -1970,7 +1990,7 @@ module GFS_typedefs
 !----------------
   public GFS_init_type
   public GFS_statein_type,  GFS_stateout_type, GFS_sfcprop_type, &
-         GFS_coupling_type
+         GFS_coupling_type, GFS_NNbc_type
   public GFS_control_type,  GFS_grid_type,     GFS_tbd_type, &
          GFS_cldprop_type,  GFS_radtend_type,  GFS_diag_type
   public GFS_data_type
@@ -2060,6 +2080,30 @@ module GFS_typedefs
     Stateout%gq0 = clear_val
 
  end subroutine stateout_create
+
+
+!-------------------------
+! GFS_NNbc_type%create
+!-------------------------
+  subroutine NNbc_create (NNbc, IM, Model)
+
+    implicit none
+
+    class(GFS_NNbc_type)           :: NNbc
+    integer,                intent(in) :: IM
+    type(GFS_control_type), intent(in) :: Model
+
+    allocate (NNbc%gu (IM,Model%levs))
+    allocate (NNbc%gv (IM,Model%levs))
+    allocate (NNbc%gt (IM,Model%levs))
+    allocate (NNbc%qv (IM,Model%levs))
+
+    NNbc%gu = clear_val
+    NNbc%gv = clear_val
+    NNbc%gt = clear_val
+    NNbc%qv = clear_val
+
+ end subroutine NNbc_create
 
 
 !------------------------

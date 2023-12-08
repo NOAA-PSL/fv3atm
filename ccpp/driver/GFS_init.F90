@@ -3,6 +3,7 @@ module GFS_init
   use machine,                  only: kind_phys
   use GFS_typedefs,             only: GFS_init_type,                       &
                                       GFS_statein_type, GFS_stateout_type, &
+                                      GFS_NNbc_type,                       &
                                       GFS_sfcprop_type, GFS_coupling_type, &
                                       GFS_control_type, GFS_grid_type,     &
                                       GFS_tbd_type,     GFS_cldprop_type,  &
@@ -26,7 +27,7 @@ module GFS_init
 !--------------
 ! GFS initialze
 !--------------
-  subroutine GFS_initialize (Model, Statein, Stateout, Sfcprop,     &
+  subroutine GFS_initialize (Model, Statein, Stateout, NNbc, Sfcprop,     &
                              Coupling, Grid, Tbd, Cldprop, Radtend, & 
                              Diag, Interstitial, Init_parm)
 
@@ -38,6 +39,7 @@ module GFS_init
     type(GFS_control_type),      intent(inout) :: Model
     type(GFS_statein_type),      intent(inout) :: Statein(:)
     type(GFS_stateout_type),     intent(inout) :: Stateout(:)
+    type(GFS_NNbc_type),         intent(inout) :: NNbc(:)
     type(GFS_sfcprop_type),      intent(inout) :: Sfcprop(:)
     type(GFS_coupling_type),     intent(inout) :: Coupling(:)
     type(GFS_grid_type),         intent(inout) :: Grid(:)
@@ -86,6 +88,7 @@ module GFS_init
       ix = Init_parm%blksz(nb)
       call Statein  (nb)%create (ix, Model)
       call Stateout (nb)%create (ix, Model)
+      call NNbc     (nb)%create (ix, Model)
       call Sfcprop  (nb)%create (ix, Model)
       call Coupling (nb)%create (ix, Model)
       call Grid     (nb)%create (ix, Model)

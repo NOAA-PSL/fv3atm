@@ -430,7 +430,12 @@ if ( GFS_control%do_nn_bias_correction .and. mod(GFS_control%kdt*GFS_Control%dtp
       Stateout_tmp = GFS_data(:)%Stateout
        do nb = 1,Atm_block%nblks
           do i = 1, Atm_block%blksz(nb)
-             call eval_nn(          
+! copy stateout to compute NN corrections
+             GFS_data(nb)%NNbc%gt(i,:)=GFS_data(nb)%Stateout%gt0(i,:)
+             GFS_data(nb)%NNbc%qv(i,:)=GFS_data(nb)%Stateout%gq0(i,:,1)
+             GFS_data(nb)%NNbc%gu(i,:)=GFS_data(nb)%Stateout%gu0(i,:)
+             GFS_data(nb)%NNbc%gv(i,:)=GFS_data(nb)%Stateout%gv0(i,:)
+             call eval_nn(          &
 !Inputs
                                     GFS_data(nb)%Statein%pgr(i),      &    ! surface pressure
                                     GFS_data(nb)%Stateout%gu0(i,:),   &    ! get physics output: u-wind
@@ -454,7 +459,12 @@ if ( GFS_control%do_nn_bias_correction .and. mod(GFS_control%kdt*GFS_Control%dtp
                                     Stateout_tmp(nb)%gq0(i,:,1)     & ! specific humidity
                         )
 
-          enddo
+             enddo
+             ! compute corrections
+             GFS_data(nb)%NNbc%gt(i,:)=GFS_data(nb)%Stateout%gt0(i,:)   - GFS_data(nb)%NNbc%gt(i,:)
+             GFS_data(nb)%NNbc%qv(i,:)=GFS_data(nb)%Stateout%gq0(i,:,1) - GFS_data(nb)%NNbc%qv(i,:)
+             GFS_data(nb)%NNbc%gu(i,:)=GFS_data(nb)%Stateout%gu0(i,:)   - GFS_data(nb)%NNbc%gu(i,:)
+             GFS_data(nb)%NNbc%gv(i,:)=GFS_data(nb)%Stateout%gv0(i,:)   - GFS_data(nb)%NNbc%gv(i,:)
        enddo
        call mpp_clock_end(nnphysClock)
 
@@ -754,7 +764,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step)
    Init_parm%input_nml_file  => input_nml_file
    Init_parm%fn_nml='using internal file'
 
-   call GFS_initialize (GFS_control, GFS_data%Statein, GFS_data%Stateout, GFS_data%Sfcprop,     &
+   call GFS_initialize (GFS_control, GFS_data%Statein, GFS_data%Stateout, GFS_data%NNbc, GFS_data%Sfcprop,     &
                         GFS_data%Coupling, GFS_data%Grid, GFS_data%Tbd, GFS_data%Cldprop, GFS_data%Radtend, &
                         GFS_data%Intdiag, GFS_interstitial, Init_parm)
 
@@ -778,7 +788,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step)
 
    !--- populate/associate the Diag container elements
    call GFS_externaldiag_populate (GFS_Diag, GFS_Control, GFS_Data%Statein, GFS_Data%Stateout,   &
-                                             GFS_Data%Sfcprop, GFS_Data%Coupling, GFS_Data%Grid, &
+                                             GFS_Data%NNbc, GFS_Data%Sfcprop, GFS_Data%Coupling, GFS_Data%Grid, &
                                              GFS_Data%Tbd, GFS_Data%Cldprop, GFS_Data%Radtend,   &
                                              GFS_Data%Intdiag, Init_parm)
 

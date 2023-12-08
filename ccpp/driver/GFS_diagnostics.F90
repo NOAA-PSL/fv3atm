@@ -14,7 +14,7 @@ module GFS_diagnostics
                                 GFS_coupling_type, GFS_grid_type,     &
                                 GFS_tbd_type,      GFS_cldprop_type,  &
                                 GFS_radtend_type,  GFS_diag_type,     &
-                                GFS_init_type
+                                GFS_init_type,     GFS_NNbc_type
   implicit none
   private
 
@@ -99,7 +99,7 @@ module GFS_diagnostics
 !    but instead pointers are associated to the internal representation 
 !    of each individual physics diagnostic.
 !-------------------------------------------------------------------------      
-  subroutine GFS_externaldiag_populate (ExtDiag, Model, Statein, Stateout, Sfcprop, Coupling,  &
+  subroutine GFS_externaldiag_populate (ExtDiag, Model, Statein, Stateout, NNbc, Sfcprop, Coupling,  &
                                         Grid, Tbd, Cldprop, Radtend, IntDiag, Init_parm)
 !---------------------------------------------------------------------------------------------!
 !   DIAGNOSTIC_METADATA                                                                       !
@@ -128,6 +128,7 @@ module GFS_diagnostics
     type(GFS_control_type),       intent(in)    :: Model
     type(GFS_statein_type),       intent(in)    :: Statein(:)
     type(GFS_stateout_type),      intent(in)    :: Stateout(:)
+    type(GFS_nnbc_type),          intent(in)    :: NNbc(:)
     type(GFS_sfcprop_type),       intent(in)    :: Sfcprop(:)
     type(GFS_coupling_type),      intent(in)    :: Coupling(:)
     type(GFS_grid_type),          intent(in)    :: Grid(:)
@@ -2229,6 +2230,50 @@ module GFS_diagnostics
     allocate (ExtDiag(idx)%data(nblks))
     do nb = 1,nblks
       ExtDiag(idx)%data(nb)%var3 => IntDiag(nb)%cldfra(:,:)
+    enddo
+
+    idx = idx + 1
+    ExtDiag(idx)%axes = 3
+    ExtDiag(idx)%name = 't_nnbc'
+    ExtDiag(idx)%desc = 'Temperature correction from NN'
+    ExtDiag(idx)%unit = 'K'
+    ExtDiag(idx)%mod_name = 'gfs_phys'
+    allocate (ExtDiag(idx)%data(nblks))
+    do nb = 1,nblks
+      ExtDiag(idx)%data(nb)%var3 => NNbc(nb)%gt(:,:)
+    enddo
+
+    idx = idx + 1
+    ExtDiag(idx)%axes = 3
+    ExtDiag(idx)%name = 'q_nnbc'
+    ExtDiag(idx)%desc = 'specific humidity correction from NN'
+    ExtDiag(idx)%unit = 'g/g'
+    ExtDiag(idx)%mod_name = 'gfs_phys'
+    allocate (ExtDiag(idx)%data(nblks))
+    do nb = 1,nblks
+      ExtDiag(idx)%data(nb)%var3 => NNbc(nb)%qv(:,:)
+    enddo
+
+    idx = idx + 1
+    ExtDiag(idx)%axes = 3
+    ExtDiag(idx)%name = 'u_nnbc'
+    ExtDiag(idx)%desc = 'zonal wind correction from NN'
+    ExtDiag(idx)%unit = 'm/s'
+    ExtDiag(idx)%mod_name = 'gfs_phys'
+    allocate (ExtDiag(idx)%data(nblks))
+    do nb = 1,nblks
+      ExtDiag(idx)%data(nb)%var3 => NNbc(nb)%gu(:,:)
+    enddo
+
+    idx = idx + 1
+    ExtDiag(idx)%axes = 3
+    ExtDiag(idx)%name = 'v_nnbc'
+    ExtDiag(idx)%desc = 'meridional wind correction from NN'
+    ExtDiag(idx)%unit = 'm/s'
+    ExtDiag(idx)%mod_name = 'gfs_phys'
+    allocate (ExtDiag(idx)%data(nblks))
+    do nb = 1,nblks
+      ExtDiag(idx)%data(nb)%var3 => NNbc(nb)%gv(:,:)
     enddo
 
     idx = idx + 1
